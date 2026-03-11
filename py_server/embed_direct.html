@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Bilibili 音频播放器 (直接版)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #00a0ff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #0088cc;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .status.info {
+            background-color: #e3f2fd;
+            color: #1976d2;
+            display: block;
+        }
+        .status.success {
+            background-color: #e8f5e9;
+            color: #388e3c;
+            display: block;
+        }
+        .status.error {
+            background-color: #ffebee;
+            color: #d32f2f;
+            display: block;
+        }
+        .status.warning {
+            background-color: #fff3cd;
+            color: #856404;
+            display: block;
+        }
+        audio {
+            width: 100%;
+            margin-top: 20px;
+        }
+        .video-info {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-left: 4px solid #00a0ff;
+        }
+        .video-info img {
+            max-width: 200px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .traffic-info {
+            margin-top: 10px;
+            padding: 8px;
+            background-color: #e8f5e9;
+            border: 1px solid #c3e6cb;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #155724;
+        }
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Bilibili 音频播放器 (直接版)</h1>
+        <p>输入 Bilibili 视频的 BVID 或直接使用默认视频（BV1JHPgzXEHN）</p>
+        <div class="traffic-info">
+            ⚡ <strong>零代理流量</strong>：音频直接从 Bilibili 播放，完全不经过服务器，节省服务器带宽和成本！
+        </div>
+
+        <div class="controls">
+            <input type="text" id="bvidInput" placeholder="例如: BV1JHPgzXEHN" value="BV1JHPgzXEHN" style="padding: 8px; width: 200px;">
+            <button id="loadBtn">加载并播放音频</button>
+        </div>
+
+        <div id="status" class="status"></div>
+        <div id="videoInfo" class="video-info" style="display: none;"></div>
+        <audio id="audioPlayer" controls preload="none"></audio>
+    </div>
+
+    <script>
+        // 修改为你的服务器地址
+        const API_BASE_URL = 'http://127.0.0.1:5000'; // 本地测试用，公网部署时改为你的域名
+
+        function showStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.innerHTML = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        async function loadAudio() {
+            const bvid = document.getElementById('bvidInput').value.trim();
+            if (!bvid) {
+                showStatus('请输入 BVID', 'error');
+                return;
+            }
+
+            const button = document.getElementById('loadBtn');
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.innerHTML = '<div class="loading"></div>正在加载...';
+
+            try {
+                showStatus('正在从服务器获取音频信息...', 'info');
+
+                // 请求服务器获取音频信息
+                const response = await fetch(`${API_BASE_URL}/api/video/${bvid}`, {
+                    timeout: 30000
+                });
+
+                if (!response.ok) {
+                    throw new Error(`服务器错误: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.code !== 0) {
+                    throw new Error(data.message || '获取视频信息失败');
+                }
+
+                const videoData = data.data;
+                const audioUrl = videoData.audio_url;
+
+                if (!audioUrl) {
+                    throw new Error('无法获取音频 URL');
+                }
+
+                // 显示视频信息
+                const videoInfo = document.getElementById('videoInfo');
+                let infoHtml = `<strong>视频: ${videoData.title}</strong><br>`;
+                infoHtml += `时长: ${Math.floor(videoData.duration / 60)}:${(videoData.duration % 60).toString().padStart(2, '0')}<br>`;
+                infoHtml += `音频质量: ${Math.round(videoData.bandwidth / 1000)}kbps<br>`;
+                if (videoData.pic) {
+                    infoHtml += `<img src="${videoData.pic}" alt="视频封面">`;
+                }
+                videoInfo.innerHTML = infoHtml;
+                videoInfo.style.display = 'block';
+
+                // 直接设置音频源（音频流量完全不经过服务器！）
+                const audioPlayer = document.getElementById('audioPlayer');
+                audioPlayer.src = audioUrl;
+
+                // 重置播放器状态
+                audioPlayer.currentTime = 0;
+                audioPlayer.pause();
+
+                // 添加事件监听
+                audioPlayer.onloadeddata = function() {
+                    showStatus('✓ 音频加载成功！请点击播放按钮开始播放', 'success');
+                };
+
+                audioPlayer.onplay = function() {
+                    showStatus('🎵 正在播放音频 (直连 Bilibili，零服务器流量)', 'success');
+                };
+
+                audioPlayer.onwaiting = function() {
+                    showStatus('⏳ 正在缓冲音频...', 'warning');
+                };
+
+                audioPlayer.oncanplay = function() {
+                    showStatus('✓ 音频已准备就绪，可以播放', 'success');
+                };
+
+                audioPlayer.onerror = function(e) {
+                    console.error('音频播放错误:', e);
+                    const errorCode = e.target.error ? e.target.error.code : 'unknown';
+                    console.log('音频URL:', audioUrl);
+                    showStatus(`❌ 音频播放失败 (错误码: ${errorCode})，音频URL: ${audioUrl.substring(0, 50)}...`, 'error');
+                };
+
+                audioPlayer.onended = function() {
+                    showStatus('🎵 播放完毕', 'info');
+                };
+
+                showStatus('✓ 音频URL获取成功，正在加载音频...', 'success');
+
+            } catch (error) {
+                console.error('加载错误:', error);
+                if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                    showStatus('❌ 无法连接到服务器，请确保服务器已启动', 'error');
+                } else {
+                    showStatus(`❌ 加载失败: ${error.message}`, 'error');
+                }
+            } finally {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+
+        // 绑定按钮事件
+        document.getElementById('loadBtn').addEventListener('click', loadAudio);
+
+        // 回车键加载
+        document.getElementById('bvidInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                loadAudio();
+            }
+        });
+
+        // 页面加载时检查服务器状态
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                if (response.ok) {
+                    const health = await response.json();
+                    showStatus(`✅ 服务器连接正常 (缓存: ${health.cached_items} 项) - 音频将直连播放`, 'info');
+                } else {
+                    showStatus('❌ 服务器连接失败，请检查服务器是否启动', 'error');
+                }
+            } catch (error) {
+                showStatus('❌ 无法连接到服务器，请启动服务器: python proxy_server_hybrid.py', 'error');
+            }
+        });
+
+        // 添加网络状态监听
+        window.addEventListener('online', () => {
+            showStatus('🌐 网络连接已恢复', 'info');
+        });
+
+        window.addEventListener('offline', () => {
+            showStatus('❌ 网络连接已断开', 'error');
+        });
+    </script>
+</body>
+</html>
